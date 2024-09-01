@@ -1,6 +1,6 @@
 # Panoramica del Progetto
 
-Questo progetto consiste in due componenti principali: un sistema basato su Arduino per il monitoraggio e il controllo delle condizioni ambientali e un sistema basato su Python per la raccolta di dati da un server OPC UA e la loro memorizzazione in un database MySQL. Di seguito è fornita una descrizione dettagliata delle funzionalità, delle istruzioni di configurazione e di come eseguire ciascuna parte del progetto.
+Questo progetto è un sito web locale sviluppato con Python (Flask), HTML, CSS e JavaScript, che permette di monitorare in tempo reale una serra automatizzata. Il sistema è progettato per fornire una panoramica completa delle condizioni interne della serra, inclusi i valori di temperatura, umidità, luminosità, livello dell'acqua nel serbatoio e umidità del terreno per tre piante: basilico, prezzemolo e menta.
 
 ## Componenti
 
