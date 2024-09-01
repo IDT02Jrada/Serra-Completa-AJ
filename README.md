@@ -171,7 +171,7 @@ void loop() {
 
 <details>
 <summary>File 2: Codice Python per Trasportare i dati rilevati dall'Arduino al Database</summary>
-Il codice Python gestisce la raccolta dati dal server OPC UA e il loro inserimento nel database MySQL. Le sezioni chiave includono:
+Il codice Python gestisce la raccolta dati e il loro inserimento nel database MySQL. Le sezioni chiave includono:
 
 **Importazioni e Inizializzazione**:
 ```python
