@@ -6,19 +6,12 @@ Questo progetto è un sito web locale sviluppato con Python (Flask), HTML, CSS e
 
 <details>
 <summary>Sistema di Monitoraggio Ambientale Basato su Arduino</summary>
-Utilizza un Arduino per monitorare e controllare vari fattori ambientali con sensori e attuatori:
-- Lettura della temperatura e dell'umidità con un sensore DHT11.
-- Misurazione del livello dell'acqua, intensità della luce e umidità del suolo con sensori analogici.
-- Controllo di un motore passo-passo, LED e relè in base alle letture dei sensori.
+Il progetto utilizza diversi sensori ed attuatori connessi ad Arduino per automatizzare e monitorare la serra. Un DHT11 rileva temperatura e umidità interne, mentre un fotoresistore misura la luminosità. Il livello dell'acqua nel serbatoio è monitorato dal sensore apposito, e tre igrometri misurano l'umidità del terreno per basilico, prezzemolo e menta. Cinque relè controllano altrettanti attuatori: uno gestisce un motore passo-passo per aprire lo sportello della serra se la temperatura supera una soglia; uno accende una strip LED per l'illuminazione interna; e tre attivano le pompe d'acqua per irrigare le piante quando l'umidità del terreno scende sotto il livello desiderato.
 </details>
 
 <details>
 <summary>Sistema di Raccolta Dati Basato su Python</summary>
-Si connette a un server OPC UA per recuperare dati e memorizzarli in un database MySQL:
-- Connessione a un server OPC UA.
-- Recupero di vari punti dati dal server.
-- Inserimento dei dati in un database MySQL.
-- Esecuzione continua con raccolta periodica dei dati e inserimento nel database.
+Nel progetto, utilizzo XAMPP per gestire un server Apache e un database MySQL. La connessione al database MySQL viene stabilita tramite il modulo "mysql.connector" in Python, che permette di interagire con il database per salvare i dati rilevati dai sensori della serra automatizzata.
 </details>
 
 ## Descrizione dei File
@@ -27,173 +20,263 @@ Si connette a un server OPC UA per recuperare dati e memorizzarli in un database
 <summary>File 1: Codice Arduino</summary>
 Il codice Arduino gestisce il monitoraggio ambientale. Le sezioni chiave includono:
 
-**Librerie e Definizioni**:
+**Librerie, Definizioni e Variabili globali**:
 ```cpp
-#include <LiquidCrystal.h>
-#include <Stepper.h>
-#include <DHT.h>
+#include <Stepper.h>    // Libreria per motore passo-passo
+#include <DHT.h>        // Libreria DHT11
 
-#define LED_PIN 9
-#define RELAY1_PIN 5
-#define RELAY2_PIN 6
-#define RELAY3_PIN1 3
-#define RELAY3_PIN2 7
-#define RELAY3_PIN3 8
-#define RELAY3_PIN4 10
-#define RELAY3_PIN_CONTROL 11
+#define DHT_TYPE 11
 #define DHT_PIN 2
-#define DHT_TYPE DHT11
-#define WATER_SENSOR_PIN A1
-#define PHOTORESISTOR_PIN A0
-#define HYGROMETER_PIN A2
-#define LED_PIN2 4
+#define LED_DHT 3
+#define LED_WATER 4
+#define RELAY_LEDS 5
+#define RELAY_POMPA1 6
+#define RELAY_POMPA2 7
+#define RELAY_POMPA3 8
+#define RELAY_MOTORE_CONTROLLO 9
+#define RELAY_MOTORE1 10
+#define RELAY_MOTORE2 11
+#define RELAY_MOTORE3 12
+#define RELAY_MOTORE4 13
+#define FOTO_PIN A0
+#define IGRO1 A2
+#define IGRO2 A3
+#define IGRO3 A4
+#define WATER_PIN A5
 
-#define WATER_THRESHOLD 150
-#define LIGHT_THRESHOLD 100
-#define TEMP_THRESHOLD 28
-#define HUMIDITY_THRESHOLD 850
+#define SOGLIA_ACQUA      150              // Soglie da impostare più tardi nel codice
+#define SOGLIA_LUCE      270               //
+#define SOGLIA_TEMP       32               //
+#define SOGLIA_UMID_TERR1 40               // soglia per pianta1 in base a ricerche online
+#define SOGLIA_UMID_TERR2 50               // soglia per pianta2 in base a ricerche online
+#define SOGLIA_UMID_TERR3 60               // soglia per pianta3 in base a ricerche online
+
+DHT dht(DHT_PIN, DHT_TYPE);                // Dichiarazione esistenza DHT11
+
+const int PassiRivoluzione = 1024;                                                                        // Dichiarazione motore passo-passo
+Stepper myStepper(PassiRivoluzione, RELAY_MOTORE1, RELAY_MOTORE2, RELAY_MOTORE3, RELAY_MOTORE4);          //
+ 
+bool motore_attivo = false;      // Variabile globale per memorizzazione
 ```
 
 **Funzione di Setup**:
 ```cpp
 void setup() {
-  // Inizializzare la comunicazione seriale, i pin e i sensori
+  Serial.begin(9600);            // Impostare la comunicazione seriale definendo la velocità in bits per second (baud)
+
+  pinMode(LED_DHT, OUTPUT);                         // Inizializzazione di tutti i nostri pin in uscita come OUTPUT
+  pinMode(LED_WATER, OUTPUT);                       //
+  pinMode(RELAY_LEDS, OUTPUT);                      //
+  pinMode(RELAY_POMPA1, OUTPUT);                    //
+  pinMode(RELAY_POMPA2, OUTPUT);                    //
+  pinMode(RELAY_POMPA3, OUTPUT);                    //
+  pinMode(RELAY_MOTORE_CONTROLLO, OUTPUT);          //
+
+  digitalWrite(LED_DHT, LOW);                          // Inizializzazione di tutti i nostri pin in uscita a LOW
+  digitalWrite(LED_WATER, LOW);                        //
+  digitalWrite(RELAY_LEDS, LOW);                       //
+  digitalWrite(RELAY_POMPA1, LOW);                     //
+  digitalWrite(RELAY_POMPA2, LOW);                     //
+  digitalWrite(RELAY_POMPA3, LOW);                     //
+  digitalWrite(RELAY_MOTORE_CONTROLLO, LOW);           //
+
+  myStepper.setSpeed(17);                              // Settaggio di velocità motore passo-passo
+  dht.begin();                                         // Inizializzazione DHT11
+
+  delay(1000);       // Piccolo delay
 }
 ```
 
 **Funzione di Loop**:
 ```cpp
 void loop() {
-  // Leggere i valori dei sensori e controllare gli attuatori in base alle soglie
+  float Temp = dht.readTemperature();                                        // Rilevazione del valore temperatura come variabile Temp
+  float UmidAria = dht.readHumidity();                                       // Rilevazione del valore umidità in aria come variabile UmidAria
+  float SeccTerr1 = (float(analogRead(IGRO1)) / 1023.0) * 100.0;             // Rilevazione del valore dell'umidità nel terreno ed immediata trasformazione in risultato percentuale di Secchezza
+  float UmidTerr1 = 100.0 - SeccTerr1;                                       // Tramite la percentuale di Secchezza chiediamo di visualizzare la percentuale di Umidità
+  float SeccTerr2 = (float(analogRead(IGRO2)) / 1023.0) * 100.0;             // Rilevazione del valore dell'umidità nel terreno ed immediata trasformazione in risultato percentuale di Secchezza 
+  float UmidTerr2 = 100.0 - SeccTerr2;                                       // Tramite la percentuale di Secchezza chiediamo di visualizzare la percentuale di Umidità
+  float SeccTerr3 = (float(analogRead(IGRO3)) / 1023.0) * 100.0;             // Rilevazione del valore dell'umidità nel terreno ed immediata trasformazione in risultato percentuale di Secchezza 
+  float UmidTerr3 = 100.0 - SeccTerr3;                                       // Tramite la percentuale di Secchezza chiediamo di visualizzare la percentuale di Umidità
+  int LivAcqua = analogRead(WATER_PIN);                                      // Rilevazione del valore del livello dell'acqua come variabile LivAcqua
+  int LivLuce = analogRead(FOTO_PIN);                                        // Rilevazione del valore della luminosità come variabile LivLuce
+  
+  Serial.print(Temp);                         // Printing dei valori come tupla per facilitare il raccoglimento dei valori al database MySQL
+  Serial.print(", ");                         //
+  Serial.print(UmidAria);                     //
+  Serial.print(", ");                         //
+  Serial.print(UmidTerr1);                    //
+  Serial.print(", ");                         //
+  Serial.print(UmidTerr2);                    //
+  Serial.print(", ");                         //
+  Serial.print(UmidTerr3);                    //
+  Serial.print(", ");                         //
+  Serial.print(LivAcqua);                     //
+  Serial.print(", ");                         //
+  Serial.println(LivLuce);                    //
+
+  if (LivAcqua < SOGLIA_ACQUA) {      // Condizione serbatoio in esaurimento
+    digitalWrite(LED_WATER, HIGH);
+  } else {
+    digitalWrite(LED_WATER, LOW);
+  }
+
+  if (LivLuce > SOGLIA_LUCE) {        // Condizione per illuminazione nella serra
+    digitalWrite(RELAY_LEDS, HIGH);
+  } else {
+    digitalWrite(RELAY_LEDS, LOW);
+  }
+
+  if (Temp > SOGLIA_TEMP) {          // Condizione LED per Temperatura elevata
+    digitalWrite(LED_DHT, HIGH);
+  } else {
+    digitalWrite(LED_DHT, LOW);
+  }
+  
+  if (digitalRead(LED_WATER) == LOW && UmidTerr1 < SOGLIA_UMID_TERR1) {  // Condizione partenza pompa1
+    digitalWrite(RELAY_POMPA1, HIGH);
+  } else {
+    digitalWrite(RELAY_POMPA1, LOW);
+  }
+
+  if (digitalRead(LED_WATER) == LOW && UmidTerr2 < SOGLIA_UMID_TERR2) {  // Condizione partenza pompa2
+    digitalWrite(RELAY_POMPA2, HIGH);
+  } else {
+    digitalWrite(RELAY_POMPA2, LOW);
+  }
+
+  if (digitalRead(LED_WATER) == LOW && UmidTerr3 < SOGLIA_UMID_TERR3) {   // Condizione partenza pompa3
+    digitalWrite(RELAY_POMPA3, HIGH);
+  } else {
+    digitalWrite(RELAY_POMPA3, LOW);
+  }
+
+  if (digitalRead(LED_DHT) == HIGH) {          // Condizione LED per avvio motore/apertura sportello e chiusura sportello
+    if (!motore_attivo) {             
+      motore_attivo = true;
+      myStepper.step(PassiRivoluzione * 2.75);
+    }
+  } else {
+    digitalWrite(LED_DHT, LOW);
+    if (motore_attivo) {           
+      motore_attivo = false;
+      myStepper.step(-PassiRivoluzione * 2.75);
+    }
+  }
+
+  delay(1000);        // Delay finale del loop di 1 sec
 }
 ```
 </details>
 
 <details>
-<summary>File 2: Codice Python</summary>
+<summary>File 2: Codice Python per Trasportare i dati rilevati dall'Arduino al Database</summary>
 Il codice Python gestisce la raccolta dati dal server OPC UA e il loro inserimento nel database MySQL. Le sezioni chiave includono:
 
 **Importazioni e Inizializzazione**:
 ```python
-from opcua import Client
-import datetime
 import mysql.connector
 from mysql.connector import Error
-import time
+import serial
+import threading
 ```
 
 **Ciclo Principale di Raccolta Dati**:
 ```python
-try:
-    client_prova = Client("opc.tcp://192.168.0.12:4840")
-    client_prova.connect()
+def leggi_e_elabora_dati(ser):
+    linea = ser.readline().decode('utf-8').strip()
+    valoriLetti = linea.split(', ')
 
-    cnx = mysql.connector.connect(user="root", password="password", host="127.0.0.1", database="OPCUA")
+    try:
+        temperatura = float(valoriLetti[0])
+        umidita_aria = float(valoriLetti[1])
+        umidita_terreno1 = float(valoriLetti[2])
+        umidita_terreno2 = float(valoriLetti[3])
+        umidita_terreno3 = float(valoriLetti[4])
+        livello_acqua = float(valoriLetti[5])
+        livello_luce = float(valoriLetti[6])
+    except ValueError as ve:
+        print(f"ValueError while converting sensor data: {ve}")
+        return None, None, None, None, None
 
-    if cnx.is_connected():
-        cursor = cnx.cursor()
+    print(f"Ricevuto Temperatura: {temperatura}, Umidità Aria: {umidita_aria}, Umidità Terreno Basilico: {umidita_terreno1}, Umidità Terreno Prezzemolo: {umidita_terreno2}, Umidità Terreno Menta: {umidita_terreno3}, Livello Acqua: {livello_acqua}, Livello Luminosità: {livello_luce}")
+    return temperatura, umidita_aria, umidita_terreno1, umidita_terreno2, umidita_terreno3, livello_acqua, livello_luce
 
-        crea_tabella_query = """
-        CREATE TABLE IF NOT EXISTS dati (
-            timestamp DATETIME PRIMARY KEY,
-            pezzi_prodotti INT,
-            stato_setup INT,
-            stato_stop INT,
-            stato_auto INT,
-            tempo_setup FLOAT
+def create_connection():
+    try:
+        connection = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',
+            database='dbserra'
         )
-        """
-        cursor.execute(crea_tabella_query)
-        cnx.commit()
+        if connection.is_connected():
+            print("Connected successfully")
+            return connection
+    except Error as e:
+        print(f"Error: {e}")
+        return None
 
-        while True:
-            for i in range(10):
-                var2 = client_prova.get_node("ns=4;i=2")
-                var3 = client_prova.get_node("ns=4;i=3")
-                var4 = client_prova.get_node("ns=4;i=4")
-                var5 = client_prova.get_node("ns=4;i=5")
-                var6 = client_prova.get_node("ns=4;i=6")
+def close_connection(connection):
+    if connection and connection.is_connected():
+        connection.close()
+        print("Connection closed")
 
-                Pezzi_Prodotti = var6.get_value()
-                Stato_Setup = var2.get_value()
-                Stato_Stop = var3.get_value()
-                Stato_Auto = var4.get_value()
-                Tempo_Setup = var5.get_value()
-                Timestamp = datetime.datetime.now()
-
-                inserisci_query = """
-                INSERT INTO dati (timestamp, pezzi_prodotti, stato_setup, stato_stop, stato_auto, tempo_setup)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """
-                cursor.execute(inserisci_query, (Timestamp, Pezzi_Prodotti, Stato_Setup, Stato_Stop, Stato_Auto, Tempo_Setup))
-                cnx.commit()
-
-                print("DATI INSERITI CON SUCCESSO")
-
-                time.sleep(1)
-
-            print("PAUSA PRIMA DELL'ALTRO CICLO")
-            time.sleep(10)
-
-except Error as e:
-    print(f"Error: {e}")
-
-finally:
-    if cnx is not None and cnx.is_connected():
+def modifica_database(connection, SQL_message):
+    try:
+        cursor = connection.cursor()
+        cursor.execute(SQL_message)
+        connection.commit()
+    except Error as e:
+        print(f"Error: {e}")
+    finally:
         cursor.close()
-        cnx.close()
-        print("CONNESSIONE MYSQL CHIUSA")
 
-    if client_prova is not None:
+def leggi_e_salva_dati(ser, db_connection, stop_event):
+    while not stop_event.is_set():
+        if ser.in_waiting > 0:
+            temperatura, umidita_aria, umidita_terreno1, umidita_terreno2, umidita_terreno3, livello_acqua, livello_luce = leggi_e_elabora_dati(ser)
+            if None in (temperatura, umidita_aria, umidita_terreno1, umidita_terreno2, umidita_terreno3, livello_acqua, livello_luce):
+                continue
+
+            if db_connection:
+                try:
+                    modifica_database(db_connection,
+                        f"INSERT INTO datirilevati (temp, umid_aria, umid_terr1, umid_terr2, umid_terr3, liv_acqua, liv_lum) "
+                        f"VALUES ({temperatura}, {umidita_aria}, {umidita_terreno1}, {umidita_terreno2}, {umidita_terreno3}, {livello_acqua}, {livello_luce})")
+                except Error as e:
+                    print(f"Database Error: {e}")
+
+if __name__ == '__main__':
+    PORTA_SERIALE = "COM6"
+    BAUD_RATE = 9600
+
+    try:
+        ser = serial.Serial(PORTA_SERIALE, BAUD_RATE, timeout=1)
+        if ser.is_open:
+            print(f"Serial port {PORTA_SERIALE} opened successfully")
+    except serial.SerialException as se:
+        print(f"SerialException: {se}")
+        ser = None
+
+    if ser:
+        db_connection = create_connection()
+        stop_event = threading.Event()
+
+        thread_DB = threading.Thread(target=leggi_e_salva_dati, args=(ser, db_connection, stop_event))
+        thread_DB.start()
+
         try:
-            client_prova.disconnect()
-            print("CLIENT OPC UA DISCONNESSO")
-        except Exception as e:
-            print(f"Errore nella disconnessione del client OPC UA: {e}")
+            while True:
+                pass
+        except KeyboardInterrupt:
+            print("Interrupted by user, shutting down.")
+            stop_event.set()
+            thread_DB.join()
+
+        ser.close()
+        close_connection(db_connection)
+
+    print("End execution")
 ```
-</details>
-
-## Istruzioni di Configurazione
-
-<details>
-<summary>Sistema Basato su Arduino</summary>
-
-1. **Configurazione Hardware**:
-   - Collegare il sensore DHT11 al DHT_PIN (pin 2).
-   - Collegare il sensore dell'acqua al WATER_SENSOR_PIN (A1).
-   - Collegare il fotoresistore al PHOTORESISTOR_PIN (A0).
-   - Collegare l'igrometro al HYGROMETER_PIN (A2).
-   - Collegare il motore passo-passo ai pin dei relè (RELAY3_PIN1, RELAY3_PIN2, RELAY3_PIN3, RELAY3_PIN4).
-   - Collegare i relè ai pin RELAY1_PIN, RELAY2_PIN e RELAY3_PIN_CONTROL.
-
-2. **Configurazione Software**:
-   - Caricare il codice Arduino sulla scheda Arduino.
-</details>
-
-<details>
-<summary>Sistema Basato su Python</summary>
-
-1. **Installare le Dipendenze**:
-   - Installare le librerie Python richieste usando pip:
-     ```bash
-     pip install opcua mysql-connector-python
-     ```
-
-2. **Configurazione MySQL**:
-   - Assicurarsi di avere MySQL installato e in esecuzione.
-   - Creare un database chiamato `OPCUA`.
-
-3. **Eseguire lo Script Python**:
-   - Eseguire lo script Python per iniziare la raccolta dei dati:
-     ```bash
-     python your_script.py
-     ```
-</details>
-
-## Esecuzione del Progetto
-
-<details>
-<summary>Guida alla Esecuzione</summary>
-- Accendere il sistema Arduino per iniziare a monitorare le condizioni ambientali.
-- Eseguire lo script Python per iniziare a raccogliere dati dal server OPC UA e memorizzarli nel database MySQL.
 </details>
